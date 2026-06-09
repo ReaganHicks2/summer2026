@@ -1,0 +1,634 @@
+---
+html_document:
+  df_print: kable
+author: "Eric Youngstrom, PhD"
+date: "RISE 2025"
+output:
+  word_document:
+  pdf_document: default
+  html_document:
+    df_print: paged
+title: "Using ABACAB and KU-UNC as example for analyses discussed in 525"
+pdf_document:
+  df_print: kable
+editor_options: 
+  markdown: 
+    wrap: 100
+zotero: "IMBHR"
+---
+
+# Overview
+
+This notebook has a bunch of worked examples for different visualizations (especially in Exploratory
+Data Analysis mode) and statistical analyses.
+
+You will definitely not need all of these for your project, and you may need or want some other
+things that are not covered in these examples.
+
+A typical student project would use a subset of these chunks, with this sequence as a common work
+flow:
+
+1)  library to load your packages (haven, psych, ggplot, tidyverse, etc.)
+2)  load your data (usually haven for us)
+3)  select your variables (look at the modelvars example; remember to include age and sex, maybe
+    race as ways of describing participants)
+4)  psych::describe to get the descriptives (N, min, max, M, SD, skew, kurtosis)
+5)  pairs.panels -- are the relationships linear? Do the histograms look okay? etc...
+6)  na.omit -- get rid of missing data
+7)  run analysis (often setCor or lm)
+8)  make table or figure -- could be ggplot, or could be the tricked out version of pairs.panels
+    with the asterisks, etc. (code is in the class notes for today). That covers the bases for most
+    people's posters. Everything you need (unless you are running logistic regression or something
+    else "off menu") should be in the two notebooks, and usually all is in the second one.
+9)  Write out "sufficient data" for someone else to be able to replicate your results.
+
+One way of organizing your final project would be to copy and paste the relevant chunks into a new
+notebook that you make for it. That will let you streamline things and customize it as you wish.
+
+```{r setup (chunk 1, above)}
+library(tidyverse) #wrangling
+library(haven) #importing SPSS and other data formats
+library(ggplot2) #deluxe graphics
+library(ggExtra) #extra fancy graphics
+library(psych) #one package that covers ~80% of what we use in psychology 
+library(rstatix) #a package that offers useful options for correlation tables, ANOVA
+library(vcd) #visual displays of categorical data
+library(mosaic) #more tools for categorical data
+library(rockchalk) #useful for intermediate/advanced regression analyses
+options(digits = 3)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Note: v3.2 of the data had an error in item 10 (it was accidentally over-written by the 10 item
+scale score)
+
+```{r Load data (chunk 2)}
+# [] come back to this and load the datasets for class
+abacab <- read_sav("Ultimate Enchilada v3.3 chopped for 525 v4.sav") 
+ku2017<-read_spss("Korea_Spring_Fall_2017 v5 (safe)+2018+2019+Spr2020 April 2023 fix.sav")
+```
+
+```{r Selecting your variables (chunk 3)}
+modelvars<-abacab %>% 
+  select(cmrsptot, pgbsleep, bpvsall, anyadhd, agechild, cgender, cgroup5) 
+#make data subset
+
+```
+
+# Checking assumptions
+
+```{r Checking assumptions (chunk4,5)}
+
+describe(modelvars) #Get N, min & max (compare to source docs), skew & kurtosis
+pairs.panels(modelvars) #Look at histograms, scatterplots, LOESS smoother
+```
+
+## Basic missing data handling -- listwise deletion Contrast this with "pairwise," earlier.
+
+```{r Listwise delete (chunk 6)}
+modelvars<-na.omit(modelvars)
+describe(modelvars) #Get N, min & max (compare to source docs), skew & kurtosis
+pairs.panels(modelvars) #Look at histograms, scatterplots, LOESS smoother
+
+```
+
+## Tricked out pairs.panels
+
+This example shows how to change a lot of the settings in pair.panels in order to make the figure
+more "presentation worthy." Customizing the names on the diagonal is the most complicated piece of
+the code. You *must* type in your construct names, or it will use the labels provided in the example
+instead, and you need to edit the length of the list so that it matches the number and order of the
+variables listed in your object (e.g., example has 7 variables; you many only have 5).
+
+###Pro Tips if using as your main figure Focus: If this is going to be your main figure, you should
+limit it to only include the variables in your model (e.g., don't need to include demographics,
+covariates, or extra variables from sensitivity analysis). Here, less is more: having fewer
+variables will focus attention, and it will let each of the remaining plots take up more room and
+show more detail.
+
+Order: Think about what order you want to put the variables. The dependent variable probably should
+come last, because then it would be positioned on the y-axis on the scatterplots along the bottom
+row. There may be an order to use for the predictors that could help guide attention, too. The most
+important could be first (or second to last) for instance.
+
+```{r Tricked out pairs.panels (one option for chunk 8)}
+pairs.panels(modelvars, 
+             stars=TRUE, #drops the asterisks next to the correlations
+             jiggle=TRUE, #jiggles/jitters the dots,
+             factor = .8, #0 to 5, how much jiggle to add
+             labels = c("CMRS Mania", "PGBI Sleep", "Any Bipolar", "Any ADHD", "Youth Age", "Female", "Diagnostic Group"), #labels the diagonal (no more variable names!)
+             hist.col="#99BADD", #changes color of histogram
+             col="purple",
+             cex.cor=0.9, #changes the size of the font for the correlations 
+             pch=".") #makes the dot in the scatterplots smaller
+```
+
+# Statistical analyses
+
+The next sections include code for running most of the analyses you see commonly in Psychology
+statistic courses or in student projects. The choice of the analysis depends on a combination of
+your research question and the level of measurement of your variables (especially
+nominal/categorical vs dimensional-ish).
+
+You may need to check some additional assumptions depending on your choice of analysis.
+
+These examples would be places to look for "Chunk 7 -- run analyses," and also maybe more checking
+assumptions (augmenting what we get from psych::describe and psych::pairs.panels). There are some
+examples of prototypes for presentation quality figures with ggplot2, as well.
+
+# Correlations
+
+Remember to check assumptions -- are the variables continuous? If yes, are they normally
+distributed?
+
+If one or both of the variables are *not* normally distributed, then switch to Spearman's rho
+instead of the usual Pearson's r.
+
+pairs.panels and describe are a good combination to check these. boxplots are a quick visual check
+for univariate outliers.
+
+```{r Correlations in psych}
+psych::corr.test(modelvars)
+psych::corr.test(modelvars, method="spearman") %>% print(digits=3)#Default is Pearson; also does Kendall Tau
+
+```
+
+```{r Correlations in rstatix}
+cor.mat <- modelvars %>% cor_mat() #table of coefficients (Pearson as default)
+cor.mat
+
+cor.mat %>% cor_get_pval() #table of p values
+
+cor.mat %>%
+  cor_as_symbols() %>%
+  pull_lower_triangle() #triangle of asterisks
+```
+
+# Regression analyses using psych package
+
+## Checklist for regression analysis ###Dependent variable \* Is your dependent variable continuous?
+
+(If it's a categorical variable with two options, consider logistic regression instead) \* Is your
+DV normally distributed (more or less) - Skew and Kurtosis \< \|3\| - no extreme outliers in
+boxplot - If not, would a transformation fix?
+
+- Predictors If dimensional, also check for outliers and skew, kurtosis as above (though normality
+  is less crucial for predictor -- but look out for outliers! They can be "high leverage" like in
+  that Anscomb Quartet scatterplot example) If they are categorical, are they already dummy coded?
+  If not, use as.factor() and R will dummy code them for us! (also possible to pick which group is
+  the comparison group)
+
+```{r setCor basic regression, 3 predictors}
+basic<-setCor(cmrsptot~ bpvsall+anyadhd+agechild, data=modelvars, std=TRUE)
+plot(basic)
+summary(basic)
+basic
+
+```
+
+## Collinearity in regression
+
+```{r Collinearity example}
+book<-setCor(lbhagb9~despa+ desna+ deshost+desnanod, data=abacab, std=TRUE)
+plot(book)
+summary(book)
+book
+```
+
+The colon or \*sets up the interaction effect for you (no manual construction of the interaction
+term) ##Interaction (aka moderation) in regression
+
+```{r setCor Interaction}
+eayInt<-setCor(cmrsptot~bpvsall*anyadhd+agechild, data=modelvars, std=TRUE)
+plot(eayInt)
+summary(eayInt)
+eayInt
+
+```
+
+Note: In psychology we would not include a 3-way interaction without also including all of the 2-way
+interactions underneath it.
+
+```{r setCor  regression 3 way interaction - using the colon sepecifies only highest order term}
+eay3way<-setCor(cmrsptot~(bpvsall:anyadhd:agechild), data=modelvars, std=TRUE)
+plot(eay3way)
+eay3way
+
+
+```
+
+This would be the right way to run a model with a 3-way and all the 2-way interactions. Interaction
+models get complicated to interpret. I wouldn't recommend pushing it all the way to a three way for
+class. But I wanted to give you an example so you could see what it would look like.
+
+```{r Interaction with 3-way and lower terms}
+threeway<-setCor(cmrsptot~(bpvsall*anyadhd*agechild), data=modelvars, std=TRUE)
+plot(threeway)
+threeway
+summary(threeway)
+anova(basic, threeway) #show how to compare simple and augmented models
+```
+
+The four interaction terms (including a 3-way interaction!)
+
+Differential item functioning (DIF) is an example of a conceptual question that interaction effects
+can help test.
+
+```{r setCor DIF example}
+abacab$cdrstot0<-abacab$cdrstot-17
+describe(abacab$cdrstot0)
+casiVera<-setCor(cdrs14~cdrstot0:cgender, data=abacab, std=FALSE)
+plot(casiVera)
+summary(casiVera)
+casiVera
+
+```
+
+## Plotting interaction effects
+
+To make a "presentation" version, what we want to do next to show the interaction is borrow Lia
+Follet's ggplot2 code from her poster. :-)
+
+```{r Code to plot the multiple linear regression of CDRS-R items}
+#with gender as a moderator ggMarginal codes for the marginal histograms
+DIFGraph <-ggplot(abacab, aes(x= cdrstot, y=cdrs14, colour=as.factor(cgender)))+geom_point() + scale_color_manual(values=c("#99BADD", "purple")) + geom_smooth(method="lm", se=FALSE) + xlab("CDRS-R Total Score")+ ylab("CDRS Item 14 - Cries a lot") +geom_jitter()+ scale_fill_discrete(name = "Sex", labels = c("Male", "Female", "Missing"))
+  
+ggMarginal(DIFGraph, groupColour=TRUE, groupFill = TRUE)
+
+DIFGraph
+
+
+```
+
+# Regression analyses using psych package
+
+The command switches to mediate, and the mediator is in (parentheses) Documentation:
+<https://cran.r-project.org/web/packages/psychTools/vignettes/mediation.pdf> It can handle simple
+mediation, multiple mediators, serial mediation, and moderated mediation!
+
+Revelle acknowledges that the Hayes macros have been bundled into the rProcess package, which would
+be another way of doing these.
+
+## Mediation -- silly example This is an example of modeling mediation. 
+It's a silly example because the model does not actually make any sense conceptually -- it flunks the "sniff test" just using
+common sense. But it's showing two things: 
+(a) how to use syntax to rearrange the variables to run a
+mediational model 
+(b) why it is important to understand the variables and the model, because R will happily do stuff that makes no sense if you ask it!
+
+In Revelle's notation (author of psych package) c = "total effect" \<-- effect of predictor without
+including the mediator c' = "direct effect" \<-- leftover direct effect that is not mediated.
+
+```{r  mediation - need to think if model makes sense with these variables}
+mediationex<-mediate(cmrsptot~(anyadhd)+agechild+bpvsall, data=modelvars, std=TRUE)
+plot(mediationex)
+summary(mediationex)
+mediationex
+
+```
+
+#Now showing how to do stuff with t-test, ANOVA using rstatix.
+
+<https://www.rdocumentation.org/packages/rstatix/versions/0.7.0>
+
+## Still To Do: Block entry regression in R, with lm or psych
+
+# Oneway ANOVA using rstatix
+
+<https://rdrr.io/cran/rstatix/f/README.md>
+
+```{r Pairing aov and rstatix}
+onewayResults<- aov((cmrsptot ~ as.factor(cgroup5)), data = modelvars)
+onewayResults
+anova_summary(onewayResults, effect.size="pes", detailed = TRUE)
+```
+
+# Mistakes to avoid
+
+```{r MISTAKE treating a categorical var as continuous}
+doh<- aov((cmrsptot ~ cgroup5), data = modelvars)
+doh
+anova_summary(doh, effect.size="pes", detailed = TRUE)
+
+```
+
+The "tell" is that there is only 1 df for the variable, when it should be (\# of categories)-1
+
+Here's what it would look like in regression treating cgroup5 as (1) a continuous variable \<--
+WRONG!!! (2) a factor \<-- correct!!!! (3) picking your comparison group \<-- fancy!!!!
+
+```{r cgroup5 is not continuous regression example}
+sadlyWrong2<- setCor(cmrsptot ~ cgroup5, data = modelvars)
+sadlyWrong2
+summary(sadlyWrong2, detailed = TRUE)
+```
+
+## a fix: declaring a categorical variable as a factor
+
+```{r cgroup5 as a categorical factor, echo=TRUE}
+modelvars$cgroup5<- as.factor(modelvars$cgroup5)
+rockOn<- lm(cmrsptot ~ cgroup5, data = modelvars)
+rockOn
+summary(rockOn, detailed = TRUE)
+```
+
+## Changing the reference level for your dummy codes
+
+R will automatically create dummy codes for your factor. It's possible to pick which group gets
+assigned "0" for all the comparisons. This makes it the reference group, or the one that all other
+groups get compared against.
+
+```{r cgroup5 comparing to cgroup5 of 5 instead of 1}
+fancy<- lm(cmrsptot ~ relevel(cgroup5, ref="5"), data = modelvars)
+fancy
+summary(fancy, detailed = TRUE)
+```
+
+## Boxplots (instead of bar charts)
+
+...to figure out what the effect is If we decide that this is one of the main figures in the
+presentation, then we can give it some "TLC" in terms of axis labels, as well as general aesthetics.
+This is plenty helpful for a quick plot to get oriented, though!
+
+# Group differences
+
+```{r Group differences}
+boxplot(cmrsptot~cgroup5, data=modelvars)
+```
+
+Different post hoc tests compare the group means, while also trying to protect against "false
+positive" results (Type I errors).
+
+Pairwise t-tests with a correction is one common approach.
+
+rstatix can do all of these with a t-test: "holm" - Holm's (1979) stepdown correction "hochberg" -
+Hochberg's (1988) correction " hommel" -Hommel's (1988) correction "bonferroni" - Bonferroni
+correction --common, but it's the worst for statistical power "BH"-Benjamini-Hochberg (1995)
+correction, also know as false discovery rate (FDR) "BY"- Benjamini-Yekutieli (2001) "fdr" - alias
+for Benjamini-Hochberg, above; commonly used in genetics and imaging work "none" - no error
+protection!
+
+EY recommendations: FDR or Holm if you want to balance errors. Bonferroni if you want to be
+conservative or make it hard for groups to be significantly different.
+
+```{r pairwise t-tests with correction}
+pairwise.t.test(modelvars$cmrsptot, modelvars$cgroup5,
+                p.adjust.method = "BH") #Benjamini-Hochberg False Discovery Rate correction
+```
+
+```{r Games Howell post hoc test}
+modelvars %>% games_howell_test(cmrsptot ~ cgroup5)
+
+boxplot(cmrsptot ~ cgroup5, data = modelvars,
+        names = c("Bipolar I","Other bipolar","Unipolar Dep","ADHD/DBD","Other"), col="#99BADD", ylab = "Total Parent CMRS Score", xlab = "Diagnostic Group")
+```
+
+```{r Games Howell with Grouped data}
+# Grouped data
+modelvars %>%
+  group_by(anyadhd) %>%
+  games_howell_test(cmrsptot ~ bpvsall)
+
+```
+
+<https://rpubs.com/pinkrpub/667245> for EDA visualization examples
+
+# Chi Squared!
+
+This page was helpful: <http://www.sthda.com/english/wiki/chi-square-test-of-independence-in-r> also
+<https://statsandr.com/blog/chi-square-test-of-independence-in-r/#chi-square-test-of-independence-in-r>
+
+and Andy Fields has the helpful tip about requesting output as "SPSS" format. On p. 821 f. he
+recommends and walks through the gmodels package, which provides helpful output.
+
+<http://www.sthda.com/english/articles/32-r-graphics-essentials/129-visualizing-multivariate-categorical-data/>
+
+```{r chi-square}
+library (vcd)
+library (graphics)
+library (gplots)
+library (gmodels)
+
+
+chisqResults<-chisq.test(table(modelvars$cgroup5, modelvars$anyadhd))
+chisqResults #covers the basics, but not detailed
+
+gmodels::CrossTable(modelvars$anyadhd, modelvars$cgroup5, chisq = TRUE, expected = TRUE, 
+                    sresid=TRUE, format = "SPSS")
+
+
+vcd::mosaic(~cgroup5 + anyadhd, direction=c("v","h"), data=modelvars, shade=TRUE)
+
+
+tableInput<-table(modelvars$cgroup5, modelvars$anyadhd )
+gplots::balloonplot(t(tableInput), 
+                      main="ADHD rates within diagnostic groups", xlab="Any ADHD", ylab="Diagnostic Group") 
+```
+
+<https://rdrr.io/cran/rstatix/man/games_howell_test.html>
+
+# Sufficient data for replication
+
+There are two values in tension with research: wanting to have control of the data versus wanting to
+be transparent and replicable.
+
+The ideas of sharing and reproducibility are core to Open Science. They also are newer ideas, so how
+to do it is evolving rapidly.
+
+A "sweet spot" that tries to balance the two is to make a shareable version of the data that
+contains everything one would need to replicate... and not a single row or column more. That checks
+the boxes for reproducibility and transparency, and it lets you keep control of the rest of the data
+(and not "overshare").
+
+The easiest way to do it is to take the object that has the variables that made the "final cut" for
+this particular project, and then write out a copy of it (not the whole original dataset).
+
+Then share that smaller file, but not the other one.
+
+The simples way to do that is via the "write.csv" command. The default options spit out a comma
+separated value (= .csv) text file that can be read by anything that can read text, with the
+variable names (and nothing else) at the top. No missing value codes, no variable or value labels,
+none of the other goodies come through. But the variable names and the data are enough to check your
+results.
+
+There are ways of adding back more information (there's a write.sav command, and other ways of
+writing to SPSS, SAS, Excel, or other formats). Writing the sufficient data as a .sav would keep a
+lot more information, but it would also require the next person to use haven (or foreign, or
+expss... ) to read it (or fork over a lot of money to IBM, Microsoft, or whatever big tech firm is
+extracting the cash!).
+
+A vanilla .csv is enough to get full credit for the class. A .sav file would be coming "full circle"
+--\> we started with the data in an .sav file (curated by someone else), added value with a new
+question, research, analyses, and visualization, and the make it reproducible... and pay it forward
+with another labelled .sav file... completing "the Circle of Science"! (\<-- cue The Lion King
+soundtrack!)
+
+```{r Chunk 9 -- Write out sufficient data}
+write.csv(modelvars, "YourNameSufficientData.csv")
+```
+
+#Advanced stuff
+
+Extra bling: could get Cronbach's alpha from own data!
+
+Item names are cmrsp01 to cmrsp21.
+
+```{r get Items}
+##need to input items
+cmrsitems<-select(abacab, cmrsp01:cmrsp21) # make a smaller object with the variables we'll use for the examples
+
+describe(cmrsitems) #note the different Ns due to missing data
+cmrsitemsShrunk<-na.omit(cmrsitems) #listwise delete for complete items
+describe(cmrsitemsShrunk)
+headTail(cmrsitemsShrunk)
+```
+
+```{r get items for BDS with Kaya and Rachel}
+##need to input items
+bdsitems<-select(ku2017, bds01, bds02, bds04, bds05, bds06, bds08, bds10) # make a smaller object with the variables we'll use for the examples
+
+
+describe(bdsitems) #note the different Ns due to missing data
+bdsitemsShrunk<-na.omit(bdsitems) #listwise delete for complete items
+describe(bdsitemsShrunk)
+headTail(bdsitemsShrunk)
+
+```
+
+# Reliability
+
+## Alpha
+
+Cronbach's alpha, the most widely reported form of internal consistency reliability, is in the psych
+package
+
+```{r alpha}
+psych::alpha(bdsitemsShrunk)
+
+```
+
+## Omega -- an alternative reliability measure
+
+Omega also is in the psych package.
+
+```{r omega}
+psych::omega(cmrsitemsShrunk, nfactors=2)
+psych::omega(cmrsitemsShrunk, nfactors=4)
+
+```
+
+## Exploratory factor analysis
+
+Factor analysis is an "easter egg" -- not something required for a poster in 525.
+
+```{r ML EFA}
+# Maximum Likelihood Factor Analysis
+# entering raw data and extracting 2 factors,
+# with varimax rotation
+
+cmrsmlfit <- factanal(cmrsitemsShrunk, 2, rotation="promax")
+print(cmrsmlfit, digits=2, cutoff=.3, sort=TRUE)
+plot.new()
+load <- cmrsmlfit$loadings[,1:2]
+
+text(load,labels=names(cmrsitems),cex=.7) # add variable names
+
+```
+
+```{r ML EFA if defaults}
+# Principal Axis Factor Analysis
+
+
+
+#library(psych)
+cmrsefa <- factor.pa(cmrsitemsShrunk, nfactors=5, rotate="promax")
+cmrsefa # print results
+
+```
+
+```{r factors}
+library (nFactors)
+
+ev <- eigen(cor(cmrsitemsShrunk)) # get eigenvalues
+ap <- nFactors::parallel(subject=nrow(cmrsitems),var=ncol(cmrsitems),
+                         rep=100,cent=.05)
+nS <- nScree(x=ev$values, aparallel=ap$eigen$qevpea)
+plotnScree(nS)
+
+```
+
+## Item Response Theory (IRT)
+
+```{r cmrs item GRM}
+library(mirt)
+modelcmrs.grm<-'cmrs = 1-21'
+resultscmrs.grm<-mirt(data=cmrsitemsShrunk, 
+                      model=modelcmrs.grm, itemtype="graded", SE=TRUE, verbose=FALSE)
+coefcmrs.grm<-coef(resultscmrs.grm, IRTpars=TRUE, simplify=TRUE, na.rm=TRUE)
+itemscmrs.grm<-as.data.frame(coefcmrs.grm$items)
+print(itemscmrs.grm)
+##write_csv(itemscmrs.grm, "itemscmrs.csv")
+
+```
+
+#Sandbox
+
+This is where stuff that is not finished goes. To get R to do a diagram for us, we can use the
+rockchalk package. Unfortunately, rockchalk doesn't read the results from setCorr, so we have to
+switch to lm.
+
+casiVera2\<-lm(cdrs14\~cdrstot0\*cgender, data=abacab) summary(casiVera2)
+sketch\<-plotSlopes(casiVera2, plotx="cdrstot0", xlab="Total CDRS-R Score (0=minimum)",
+interval="confidence", opacity=80, col="purple", ylim=c(1,7), legendArgs=list(x="topright")) sketch
+
+Code from EGC:
+
+Reg \<- lm(hopelec\~CPSStot+fadtotalpomp, data=RES2) summary(Reg) RegModel \<-
+lm(hopelec\~CPSStot\*fadtotalpomp, data=RES2) summary(RegModel)
+
+m3ps \<- plotSlopes(RegModel, modx = "fadtotalpomp", plotx = "CPSStot", n=3, modxVals="std.dev")
+m3psts \<- testSlopes(m3ps) round(m3psts\$hypotests,4)
+
+basicStats(RES) #Get N, min & max (compare to source docs), skew & kurtosis pairs.panels(RES) #Look
+at histograms, scatterplots, LOESS smoother #ggpairs(RES) pairs.panels(RES) #regression findings
+plot_summs(RegModel, robust = TRUE, plot.distributions = TRUE, rescale.distributions = TRUE)
+export_summs(RegModel, model.names = c("Global Family Functioning's Impact on the Relationship of
+Child Post-Traumatic Symptoms on Child Hopelessness and Helplessness Outlook"), robust = TRUE, VIF =
+TRUE, error_format = "({statistic}, p = {p.value})[CI 95% {conf.low}, {conf.high}]", model.fit =
+TRUE, to.file = "xlsx", file.name = "finalmodels1.xlsx")
+
+The "codebook" package generates a huge amount of information about a data file. The defaults on
+this are extensive and take a LONG time to run. Prohibitively large for most uses. We could explore
+how to turn off a bunch of the features to make it more manageable.
+
+```{r codebook}
+#library(codebook)
+#codebook(bfi)
+```
+
+## Various ways of getting descriptives and checking assumptions
+
+rstatix::get_summary_stats(): Compute summary statistics for one or multiple numeric variables. Can
+handle grouped data.
+
+rstatix::freq_table(): Compute frequency table of categorical variables.
+
+rstatix::get_mode(): Compute the mode of a vector, that is the most frequent values.
+
+rstatix::identify_outliers(): Detect univariate outliers using boxplot methods.
+
+rstatix::mahalanobis_distance(): Compute Mahalanobis Distance and Flag Multivariate Outliers.
+
+rstatix::shapiro_test() and mshapiro_test(): Univariate and multivariate Shapiro-Wilk normality
+test.
+
+```{r  Descriptives}
+get_summary_stats(modelvars) #gives IQR, but no skew or kurtosis
+
+freq_table(modelvars, cgroup5) # Gives counts and bin percentages, not cumulative
+
+mahalanobis_distance(modelvars) %>% arrange(desc(mahal.dist)) #very helpful for outliers
+
+```
+
+![](images/Sounds%20Gouda.png)
