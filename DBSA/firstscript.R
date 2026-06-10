@@ -8,13 +8,13 @@ library(lavaan)
 library(psych)
 
 #section on the DBSA scale
-#data <- read_sav("Korea_Spring_Fall_2017 v5 (safe)+2018+2019+Spr2020 April 2023 fix.sav")
+#data <- read_sav("DBSA/Korea_Spring_Fall_2017 v5 (safe)+2018+2019+Spr2020 April 2023 fix.sav")
 #dim(data)
 #str(data)
 #View(data)
 
 #section on the PHQ data
-dataPHQ <- read_sav("PHQ9 for DBSA_Depression_Adult_V1_regionalized_2023-03-08.sav", encoding = "latin1")
+dataPHQ <- read_sav(file.choose())
 
 #dim(dataPHQ)
 #View(dataPHQ)
