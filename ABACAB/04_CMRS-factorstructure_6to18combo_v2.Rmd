@@ -1,0 +1,1217 @@
+---
+title: "Main Sample CMRS Factors, 6-18 Parents (N=2252)"
+author: "Marissa McClellan"
+output:
+  pdf_document: 
+    toc: true
+    toc_depth: 4
+    number_sections: true
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 80
+  chunk_output_type: inline
+---
+
+# Load data and packages
+
+```{r}
+source("00_libraries_v1.R") ## includes needed packages
+source("01_data-cleaning_6to11combo_v1.R")  ## loads 6-11 par sample with needed factors
+source("01_data-cleaning_12to18combo_v1.R")  ## loads 12-18 par sample with needed factors
+```
+
+```{r}
+library(esem)
+# library(devtools)
+# devtools::install_github("MateusPsi/esemComp", build_vignettes = TRUE)
+library(esemComp)
+```
+
+## Light data cleaning
+```{r}
+## Pull out CMRS- Younger Sample
+
+cmrs_young <- parent_young %>%
+  select(child_sex_main, child_gender_main, child_age_main, cmrsp01:cmrsp21, cmrsp21tot:cmrsp10pomp)
+      
+  # only contains 21 items
+cmrs21_young_items <- parent_young %>%
+  select(cmrsp01:cmrsp21)
+
+# omits missing values (used for reliability and EFA)
+cmrs21_young_shrunk <- na.omit(cmrs21_young_items)
+      
+  # only contains 10 items
+cmrs10_young_items <- parent_young %>%
+  select(cmrsp01, cmrsp02, cmrsp04, cmrsp05, cmrsp08, cmrsp09, cmrsp12, cmrsp13, cmrsp16, cmrsp20)
+
+# omits missing values (used for reliability and EFA)
+cmrs10_young_shrunk <- na.omit(cmrs10_young_items)
+```
+
+```{r}
+## Pull out CMRS- Older Sample
+
+cmrs_old <- parent_old %>%
+  select(child_sex_main, child_gender_main, child_age_main, cmrsp01:cmrsp21, cmrsp21tot:cmrsp10pomp)
+      
+  # only contains 21 items
+cmrs21_old_items <- parent_old %>%
+  select(cmrsp01:cmrsp21)
+
+# omits missing values (used for reliability and EFA)
+cmrs21_old_shrunk <- na.omit(cmrs21_old_items)
+      
+  # only contains 10 items
+cmrs10_old_items <- parent_old %>%
+  select(cmrsp01, cmrsp02, cmrsp04, cmrsp05, cmrsp08, cmrsp09, cmrsp12, cmrsp13, cmrsp16, cmrsp20)
+
+# omits missing values (used for reliability and EFA)
+cmrs10_old_shrunk <- na.omit(cmrs10_old_items)
+```
+
+```{r}
+## Combine into 1 data frame
+
+## demos, items, scores totals
+cmrs_combo <- rbind(cmrs_young, cmrs_old)
+
+### Add a column to dictate young and old groups
+cmrs_combo$AgeGroup <- ifelse(cmrs_combo$child_age_main<12, "Younger", "Older")
+
+## 21 items only
+cmrs21_combo <- rbind(cmrs21_young_items, cmrs21_old_items)
+
+## 21 shrunk items only (used for reliability and EFA)
+cmrs21_shrunk_combo <- rbind(cmrs21_young_shrunk, cmrs21_old_shrunk)
+
+## 10 items only
+cmrs10_combo <- rbind(cmrs10_young_items, cmrs10_old_items)
+
+## 10 items shrunk only (used for reliability and EFA)
+cmrs10_shrunk_combo <- rbind(cmrs10_young_shrunk, cmrs10_old_shrunk)
+```
+
+#===================================================================
+# CMRS 21
+## Determine # of factors
+
+```{r}
+cortest.bartlett(cmrs21_shrunk_combo)
+## statistically significant, p=0
+
+KMO(cmrs21_shrunk_combo)
+## .95 is "marvelous"
+```
+
+
+### Polychoric Screes (treats like lavaan)
+
+
+```{r eigen scree nfactors}
+## METHOD 1: Eigenvalue (Kaiser criterion) (ChatGPT code)- psych & nFactors
+
+library(nFactors)
+
+## polychoric correlation matrix
+cmrs21_polychor_cor <- psych::polychoric(cmrs21_shrunk_combo)$rho
+
+
+ev <- eigen(cmrs21_polychor_cor)$values
+ap <- nFactors::parallel(subject = nrow(cmrs21_shrunk_combo),
+                         var = ncol(cmrs21_shrunk_combo),
+                         rep = 100,
+                         cent = .95)
+ns <- nFactors::nScree(x = ev, aparallel = ap$eigen$qevpea)
+
+ns$Components # shows suggested # factors by rules
+nFactors::plotnScree(ns)
+
+## Findings: 3 factors above ev = 1
+```
+
+```{r parallel analysis scree}
+## METHOD 2: parallel analysis- psych package only
+
+psych::fa.parallel(
+  cmrs21_shrunk_combo,
+  fa  = "fa",
+  fm  = "minres",
+  cor = "poly"
+)
+
+##Suggests 6 factors
+```
+### Method Agreement
+
+```{r}
+library(parameters)
+
+methods_21 <- n_factors(x = cmrs21_shrunk_combo,
+                        type = "fa",
+                        rotation = "promax",  ## for VSS
+                        algorithm = "minres",
+                        package = c("nFactors", "psych"),
+                        correlation_matrix = psych::polychoric(cmrs21_shrunk_combo)$rho)
+methods_21    ## print
+
+as.data.frame(methods_21)
+```
+
+
+## EFA - CMRS 21
+
+EFA asks: “What structure seems to be in the data?” 
+      fit indices are less important. focus on factor loadings >.40)
+      fit indices are helpful to compare differences in models
+CFA asks: “Does this prespecified structure fit?”
+ESEM asks: “Does that general structure fit better when cross-loadings are allowed?”
+SEM asks: “Given an acceptable measurement model, how do the latent factors relate to other variables?”
+  (after choosing the measurement model you trust most if you want to examine structural relations with diagnoses, impairment, demographics, etc.)
+
+### 4 factors- Psych, Poly
+
+```{r}
+# 4 factor solution
+
+library(psych)
+
+set.seed(1234)
+cmrs21_4poly_efa <- fa(
+  cmrs21_shrunk_combo,
+  cor = "poly",
+  nfactors = 4,
+  rotate = "promax",
+  fm = "minres")  ## minres is default
+
+print(cmrs21_4poly_efa, digits = 2, sort = TRUE, cut = .30)
+
+cmrs21_4poly_efa$loadings
+
+cmrs21_4poly_efa$residual[1:10]
+
+fa.diagram(cmrs21_4poly_efa)
+
+## Findings: 5 variables have double loadings.
+## Factor 3 only has 3 items. Cum var: 67%
+## RMSEA = .102 ; TLI = .878 ; RMSR = .03 ; MIC = 1.7 ; BIC = 2175.04
+```
+
+
+### EFA in Lavaan
+
+```{r Range 1-6 factors, eval=FALSE, include=FALSE}
+## Same estimator as ESEM. This is to support continuity. Testing 1,2,3,4,5,6 factors
+library(lavaan)
+
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+set.seed(1234)
+fit.efa <- efa(data = cmrs21_shrunk_combo, nfactors = 1:6, estimator = "WLSMV", ordered = var.names)
+summary(fit.efa)
+```
+
+
+#### 3 Factors only
+
+```{r unrotated (don't use), eval=FALSE, include=FALSE}
+## same estimator as CFA. use over psych poly
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_3_un <- efa(data = cmrs21_shrunk_combo,
+             nfactors = 3,
+             estimator = "WLSMV",
+             ordered = var.names)
+
+summary(fit_3_un)
+fitMeasures(fit_3_un, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled", 
+                                    "rmsea.robust", "rmsea.scaled", "cfi.robust", 
+                                    "cfi.scaled", "tli.robust", "tli.scaled", "srmr"))
+fit_3_un$loadings
+# Rotation affects factor loadings, not global model fit.
+# Use unrotated solution for robust fit indices and rotated solution for interpretation.
+
+
+## unrotated
+# chisq.scaled                     853.154
+# df.scaled                        150.000
+# pvalue.scaled                      0.000
+# rmsea.robust                       0.100
+# cfi.robust                         0.917
+# tli.robust                         0.884
+# srmr                               0.035
+```
+
+
+```{r}
+## same estimator as CFA. use over psych poly
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_3 <- efa(data = cmrs21_shrunk_combo,
+             nfactors = 3,
+             estimator = "WLSMV",
+             ordered = var.names,
+             rotation = "promax")
+
+summary(fit_3)
+fitMeasures(fit_3, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_3$loadings
+# Rotation affects factor loadings, not global model fit.
+# Use unrotated solution for robust fit indices and rotated solution for interpretation.
+
+
+##rotated promax
+
+# chisq.scaled  853.154
+# df.scaled     150.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.046
+# cfi.scaled      0.979
+# tli.scaled      0.971
+# srmr            0.035
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+
+
+## unrotated
+# chisq.scaled                     853.154
+# df.scaled                        150.000
+# pvalue.scaled                      0.000
+# rmsea.robust                       0.100
+# cfi.robust                         0.917
+# tli.robust                         0.884
+# srmr                               0.035
+```
+
+#### 4 Factors only
+
+```{r}
+## same estimator as CFA. use over psych poly
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_4 <- efa(data = cmrs21_shrunk_combo,
+             nfactors = 4,
+             estimator = "WLSMV",
+             ordered = var.names,
+             rotation = "promax")
+
+summary(fit_4)
+fitMeasures(fit_4, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_4$loadings
+
+
+## rotated
+# chisq.scaled  540.756
+# df.scaled     132.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.037
+# cfi.scaled      0.988
+# tli.scaled      0.981
+# srmr            0.027
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+
+
+## unrotated
+# chisq.scaled                     540.756
+# df.scaled                        132.000
+# pvalue.scaled                      0.000
+# rmsea.robust                       0.089
+# cfi.robust                         0.942
+# tli.robust                         0.907
+# srmr                               0.027
+
+```
+
+
+#### 5 Factors only
+```{r}
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_5 <- efa(data = cmrs21_shrunk_combo,
+             nfactors = 5,
+             estimator = "WLSMV",
+             ordered = var.names,
+             rotation = "promax")
+
+summary(fit_5)
+fitMeasures(fit_5, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_5$loadings
+
+
+### Factor 3 only has 2 items.
+## rotated
+# chisq.scaled  309.440
+# df.scaled     115.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.028
+# cfi.scaled      0.994
+# tli.scaled      0.989
+# srmr            0.020
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+
+
+## unrotated
+# chisq.scaled  309.440
+# df.scaled     115.000
+# pvalue.scaled   0.000
+# rmsea.robust    0.077
+# cfi.robust      0.962
+# tli.robust      0.931
+# srmr            0.020
+
+```
+
+#### 6 Factors only
+```{r}
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_6 <- efa(data = cmrs21_shrunk_combo,
+             nfactors = 6,
+             estimator = "WLSMV",
+             ordered = var.names,
+             rotation = "promax")
+
+summary(fit_6)
+fitMeasures(fit_6, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_6$loadings
+
+## rotated
+# chisq.scaled  219.362
+# df.scaled      99.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.023
+# cfi.scaled      0.996
+# tli.scaled      0.992
+# srmr            0.015
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+
+
+## unrotated
+# chisq.scaled  219.362
+# df.scaled      99.000
+# pvalue.scaled   0.000
+# rmsea.robust    0.061
+# cfi.robust      0.979
+# tli.robust      0.956
+# srmr            0.015
+```
+
+## ABACAB CFA
+no rotation added, since ABACAB model is rotated
+
+### 4 Factor - psych
+```{r}
+#CFA using 4 factor model based on ABACAB Scree Plot (poly, promax, psych package)
+
+set.seed(1234)
+
+# Specify factor structure
+cfa_abacab_4_21_psych.model<- '
+ADHD =~ cmrsp06 + cmrsp07 + cmrsp08 + cmrsp09 + cmrsp10 + cmrsp11
+Psychosis =~ cmrsp13 + cmrsp19 + cmrsp20 + cmrsp21
+Irritability =~ cmrsp02 + cmrsp16 + cmrsp18
+Mania =~ cmrsp01 + cmrsp03 + cmrsp04 + cmrsp05 + cmrsp12 + cmrsp14 + cmrsp15 + cmrsp17
+'
+
+# Fit CFA
+fit_cfa_abacab_4_21_psych<- cfa(cfa_abacab_4_21_psych.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"))
+
+# Display CFA result
+summary(fit_cfa_abacab_4_21_psych, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED
+## Estimator: WLSMV. Chi squared = 1476.796 ; df = 183 ; RMSEA = .056 ; CFI = .962, TLI = .956 ; SRMSR = .056
+```
+
+
+```{r}
+factor_cols <- c("ADHD", "Psychosis", "Irritability", "Mania")
+
+# Get standardized parameter estimates from the CFA model
+std_loading_wide <- parameterEstimates(fit_cfa_abacab_4_21_psych, standardized = TRUE) %>%
+  
+  # Keep only factor loadings
+  dplyr::filter(op == "=~") %>%
+  
+  # Keep factor name, item name, and standardized loading
+  dplyr::select(Factor = lhs, Item = rhs, Std_Loading = std.all) %>%
+  
+  # Reshape so each item is a row and each factor is a column
+  tidyr::pivot_wider(names_from = Factor, values_from = Std_Loading)
+
+# For each item, find the factor with the largest absolute loading
+std_loading_wide %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    
+    # Name of factor with strongest loading
+    strongest_factor = names(c_across(all_of(factor_cols)))[which.max(abs(c_across(all_of(factor_cols))))],
+    
+    # Size of strongest loading
+    strongest_loading = max(abs(c_across(all_of(factor_cols))), na.rm = TRUE)
+  ) %>%
+  dplyr::ungroup() %>% # Remove rowwise grouping and return to a regular data frame/tibble
+  dplyr::mutate(across(where(is.numeric), ~ round(.x, 3)))  # round to 3 decimals
+```
+
+
+#### 4 factor- lavaan
+
+```{r}
+#CFA using 4 factor model based on ABACAB Scree Plot (lavaan)
+
+set.seed(1234)
+
+# Specify factor structure
+cfa_abacab_4_21_lav.model<- '
+F1 =~ cmrsp01 + cmrsp03 + cmrsp04 + cmrsp05 + cmrsp12 + cmrsp14 + cmrsp15 + cmrsp17
+F2 =~ cmrsp06 + cmrsp07 + cmrsp08 + cmrsp09 + cmrsp10 + cmrsp11
+F3 =~ cmrsp02 + cmrsp16 + cmrsp18
+F4 =~ cmrsp13 + cmrsp19 + cmrsp20 + cmrsp21
+'
+
+# Fit CFA
+fit_cfa_abacab_4_21_lav <- cfa(cfa_abacab_4_21_lav.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"))
+
+# Display CFA result
+summary(fit_cfa_abacab_4_21_lav, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED
+## Estimator: WLSMV. Chi squared = 1368.449 ; df = 183 ; RMSEA = .054 ; CFI = .965, TLI = .960 ; SRMR = .053
+```
+
+
+
+### 5 Factor
+```{r}
+#CFA using ABACAB 5 factor poly model
+
+set.seed(1234)
+
+# Specify factor structure
+cfa_abacab_5_21.model<- '
+ADHD =~ cmrsp06 + cmrsp07 + cmrsp08 + cmrsp09 + cmrsp10 + cmrsp11
+Psychosis =~ cmrsp20 + cmrsp21 + cmrsp19
+Irritability =~ cmrsp02 + cmrsp16 + cmrsp18
+Maniapt1 =~ cmrsp01 + cmrsp03 + cmrsp04 + cmrsp05 + cmrsp12 + cmrsp17
+Maniapt2 =~ cmrsp13 + cmrsp14 + cmrsp15
+'
+
+# Fit CFA
+fit_cfa_abacab_5_21<- cfa(cfa_abacab_5_21.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"))
+
+# Display CFA result
+summary(fit_cfa_abacab_5_21, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED
+## Estimator: WLSMV. Chi squared = 1370.030 ; df = 179 ; RMSEA = .055 ; CFI = .965, TLI = .959 ; SRMSR = .052
+```
+
+## ESEM
+
+
+#### 3 factor rotated
+```{r 3 Factor unrotated, eval=FALSE, include=FALSE}
+library(lavaan)
+
+set.seed(1234)
+esem3.model <- '
+    efa("efa")*f1 +
+    efa("efa")*f2 +
+    efa("efa")*f3 =~ cmrsp01 + cmrsp02 + cmrsp04 + cmrsp05 + cmrsp08 + cmrsp09 +
+    cmrsp12 + cmrsp13 + cmrsp16 + cmrsp20 + cmrsp03 + cmrsp06 +
+    cmrsp07 + cmrsp10 + cmrsp11 + cmrsp14 + cmrsp15 + cmrsp17 +
+    cmrsp18 + cmrsp19 + cmrsp21
+'
+fit.esem3 <- sem(model = esem3.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"))
+
+summary(fit.esem3, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED (ignore robust)
+## Estimator: WLSMV. Chi squared = 803.396 ; df = 150 ; RMSEA = .046 ; CFI = .979, TLI = .971 ; SRMR = .035
+
+# F1: 06, 07, 08, 09
+# F2: 01, 03, 04, 05, 10, 12, 13, 14, 15, 17, 19, 20, 21
+# F3: 02, 11, 16, 18
+
+## Cross Loadings:
+# cmrsp10: F2 (.517) vs F1 (.461)
+# cmrsp19: F2 (.507) vs F3 (.392)
+# cmrsp08: F1 (.436) vs F3 (.347)
+# cmrsp11: F3 (.503) vs F1 (.405)
+```
+
+```{r}
+library(lavaan)
+
+set.seed(1234)
+esem3.model <- '
+    efa("efa")*f1 +
+    efa("efa")*f2 +
+    efa("efa")*f3 =~ cmrsp01 + cmrsp02 + cmrsp04 + cmrsp05 + cmrsp08 + cmrsp09 +
+    cmrsp12 + cmrsp13 + cmrsp16 + cmrsp20 + cmrsp03 + cmrsp06 +
+    cmrsp07 + cmrsp10 + cmrsp11 + cmrsp14 + cmrsp15 + cmrsp17 +
+    cmrsp18 + cmrsp19 + cmrsp21
+'
+fit.esem3.rot <- sem(model = esem3.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"), rotation = "promax")
+
+summary(fit.esem3.rot, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED (ignore robust)
+## Estimator: WLSMV. Chi squared = 803.396 ; df = 150 ; RMSEA = .046 ; CFI = .979, TLI = .971 ; SRMR = .035
+
+# F1: 02, 16, 18
+# F2: 03, 04, 05, 13, 14, 15, 19, 20, 21
+# F3: 01, 06, 07, 08, 09, 10, 11, 12, 17
+```
+
+```{r}
+# Get standardized parameter estimates from the ESEM model
+std_loading_wide <- parameterEstimates(fit.esem3.rot, standardized = TRUE) %>%
+
+  # Keep only factor loadings
+  dplyr::filter(op == "=~") %>%
+
+  # Keep factor name, item name, and standardized loading
+  dplyr::select(Factor = lhs, Item = rhs, Std_Loading = std.all) %>%
+
+  # Reshape so each item is a row and each factor is a column
+  tidyr::pivot_wider(names_from = Factor, values_from = Std_Loading)
+
+# For each item, find the factor with the largest absolute loading
+std_loading_wide %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+
+    # Name of factor with strongest loading
+    strongest_factor = names(c_across(starts_with("f")))[which.max(abs(c_across(starts_with("f"))))],
+
+    # Size of strongest loading
+    strongest_loading = max(abs(c_across(starts_with("f"))), na.rm = TRUE)
+  ) %>%
+  dplyr::ungroup() %>% # Remove rowwise grouping and return to a regular data frame/tibble
+  dplyr::mutate(across(where(is.numeric), ~ round(.x, 3)))  # round to 3 decimals
+```
+
+
+#### 4 factor rotated
+
+```{r 4 Factor unrotated, eval=FALSE, include=FALSE}
+library(lavaan)
+
+set.seed(1234)
+esem4.model <- '
+    efa("efa")*f1 +
+    efa("efa")*f2 +
+    efa("efa")*f3 +
+    efa("efa")*f4 =~ cmrsp01 + cmrsp02 + cmrsp04 + cmrsp05 + cmrsp08 + cmrsp09 +
+    cmrsp12 + cmrsp13 + cmrsp16 + cmrsp20 + cmrsp03 + cmrsp06 +
+    cmrsp07 + cmrsp10 + cmrsp11 + cmrsp14 + cmrsp15 + cmrsp17 +
+    cmrsp18 + cmrsp19 + cmrsp21
+'
+fit.esem4 <- sem(model = esem4.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"))
+
+summary(fit.esem4, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED (ignore robust)
+## Estimator: WLSMV. Chi squared = 507.598 ; df = 132 ; RMSEA = .038 ; CFI = .988, TLI = .980 ; SRMSR = .027
+
+# F1: 06, 07, 10
+# F3: 02, 08, 09, 11, 16, 18
+# F4: 01, 03, 04, 05, 12, 13, 14, 15, 17, 19, 20, 21
+# F2: no primary items
+
+## Cross Loadings:
+# cmrsp10: F1 (.539) and F4 (.515)
+# cmrsp09: F3 (.454) and F1 (.414)
+# cmrsp12: F4 (.459) and F2 (.376)
+# cmrsp08: F3 (.578) and F2 (.375)
+# cmrsp19: F4 (.525) and F3 (.350)
+# cmrsp01: F4 (.437) and F2 (.304)
+```
+
+```{r}
+library(lavaan)
+
+set.seed(1234)
+esem4.model <- '
+    efa("efa")*f1 +
+    efa("efa")*f2 +
+    efa("efa")*f3 +
+    efa("efa")*f4 =~ cmrsp01 + cmrsp02 + cmrsp04 + cmrsp05 + cmrsp08 + cmrsp09 +
+    cmrsp12 + cmrsp13 + cmrsp16 + cmrsp20 + cmrsp03 + cmrsp06 +
+    cmrsp07 + cmrsp10 + cmrsp11 + cmrsp14 + cmrsp15 + cmrsp17 +
+    cmrsp18 + cmrsp19 + cmrsp21
+'
+fit.esem4.rot <- sem(model = esem4.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"), rotation = "promax")
+
+summary(fit.esem4.rot, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED (ignore robust)
+## Estimator: WLSMV. Chi squared = 540.756 ; df = 132 ; RMSEA = .037 ; CFI = .988, TLI = .981 ; SRMR = .027
+
+# F1: 02, 16, 18
+# F2: 01, 05, 08, 12
+# F3: 03, 04, 13, 14, 15, 17, 19, 20, 21
+# F4: 06, 07, 09, 10, 11
+```
+
+```{r}
+# Get standardized parameter estimates from the ESEM model
+std_loading_wide <- parameterEstimates(fit.esem4.rot, standardized = TRUE) %>%
+
+  # Keep only factor loadings
+  dplyr::filter(op == "=~") %>%
+
+  # Keep factor name, item name, and standardized loading
+  dplyr::select(Factor = lhs, Item = rhs, Std_Loading = std.all) %>%
+
+  # Reshape so each item is a row and each factor is a column
+  tidyr::pivot_wider(names_from = Factor, values_from = Std_Loading)
+
+# For each item, find the factor with the largest absolute loading
+std_loading_wide %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+
+    # Name of factor with strongest loading
+    strongest_factor = names(c_across(starts_with("f")))[which.max(abs(c_across(starts_with("f"))))],
+
+    # Size of strongest loading
+    strongest_loading = max(abs(c_across(starts_with("f"))), na.rm = TRUE)
+  ) %>%
+  dplyr::ungroup() %>% # Remove rowwise grouping and return to a regular data frame/tibble
+  dplyr::mutate(across(where(is.numeric), ~ round(.x, 3)))  # round to 3 decimals
+```
+
+
+```{r}
+## modification
+
+modindices(fit.esem4.rot, minimum.value = 10, sort = T)
+```
+
+```{r}
+## Factor correlations
+
+lavInspect(fit.esem4.rot, "cor.lv")
+
+# f1 with f2 = .322
+# f1 with f3 = .417
+# f1 with f4 = .358
+# f2 with f3 = .104
+# f2 with f4 = .241
+# f3 with f4 = .746
+```
+
+
+```{r}
+## plot model
+
+semPlot::semPaths(fit.esem4.rot, "std")
+```
+
+
+#### 5 factor rotated
+
+```{r 5 Factor unrotated, eval=FALSE, include=FALSE}
+library(lavaan)
+
+set.seed(1234)
+esem5.model <- '
+    efa("efa")*f1 +
+    efa("efa")*f2 +
+    efa("efa")*f3 +
+    efa("efa")*f4 +
+    efa("efa")*f5 =~ cmrsp01 + cmrsp02 + cmrsp04 + cmrsp05 + cmrsp08 + cmrsp09 +
+    cmrsp12 + cmrsp13 + cmrsp16 + cmrsp20 + cmrsp03 + cmrsp06 +
+    cmrsp07 + cmrsp10 + cmrsp11 + cmrsp14 + cmrsp15 + cmrsp17 +
+    cmrsp18 + cmrsp19 + cmrsp21
+'
+fit.esem5 <- sem(model = esem5.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"))
+
+summary(fit.esem5, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED (ignore robust)
+## Estimator: WLSMV. Chi squared = 291.971 ; df = 115 ; RMSEA = .028 ; CFI = .994, TLI = .989 ; SRMR = .020
+
+# F1 = 01, 03, 06, 07, 10
+# F2 = 08, 09, 11
+# F3 = 05, 12
+# F4 = 02, 16, 18
+# F5 = 04, 13, 14, 15, 17, 19, 20, 21
+
+## Cross loadings:
+# cmrsp07: F1 (.594), also F2 (.494)
+# cmrsp08: F2 (.524), also F3 (.487)
+# cmrsp09: F2 (.597), also F3 (.400)
+# cmrsp12: F3 (.409), also F1 (.394)
+# cmrsp03: F1 (.502), also F5 (.337)
+# cmrsp04: F5 (.570), also F3 (.376)
+# cmrsp16: F4 (.709), also F5 (.310)
+```
+
+```{r}
+library(lavaan)
+
+set.seed(1234)
+esem5.model <- '
+    efa("efa")*f1 +
+    efa("efa")*f2 +
+    efa("efa")*f3 +
+    efa("efa")*f4 +
+    efa("efa")*f5 =~ cmrsp01 + cmrsp02 + cmrsp04 + cmrsp05 + cmrsp08 + cmrsp09 +
+    cmrsp12 + cmrsp13 + cmrsp16 + cmrsp20 + cmrsp03 + cmrsp06 +
+    cmrsp07 + cmrsp10 + cmrsp11 + cmrsp14 + cmrsp15 + cmrsp17 +
+    cmrsp18 + cmrsp19 + cmrsp21
+'
+fit.esem5.rot <- sem(model = esem5.model, data = cmrs21_shrunk_combo, estimator = "WLSMV",
+                  ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05",
+            "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10",
+            "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15",
+            "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21"), rotation = "promax")
+
+summary(fit.esem5.rot, fit.measures = TRUE, standardized = TRUE)
+
+## Findings: focus on SCALED (ignore robust)
+## Estimator: WLSMV. Chi squared = 309.440 ; df = 115 ; RMSEA = .028 ; CFI = .994, TLI = .989 ; SRMR = .020
+
+# F1 = 01, 03, 06, 07, 10
+# F2 = 08, 09, 11
+# F3 = 05, 12
+# F4 = 02, 16, 18
+# F5 = 04, 13, 14, 15, 17, 19, 20, 21
+
+## Cross loadings:
+# cmrsp07: F1 (.594), also F2 (.494)
+# cmrsp08: F2 (.524), also F3 (.487)
+# cmrsp09: F2 (.597), also F3 (.400)
+# cmrsp12: F3 (.409), also F1 (.394)
+# cmrsp03: F1 (.502), also F5 (.337)
+# cmrsp04: F5 (.570), also F3 (.376)
+# cmrsp16: F4 (.709), also F5 (.310)
+```
+
+
+```{r}
+## No modifications
+
+modindices(fit.esem5, minimum.value = 10, sort = T)
+```
+
+```{r}
+## Factor correlations
+
+lavInspect(fit.esem5, "cor.lv")
+
+```
+
+```{r}
+# Get standardized parameter estimates from the ESEM model
+std_loading_wide <- parameterEstimates(fit.esem5, standardized = TRUE) %>%
+
+  # Keep only factor loadings
+  dplyr::filter(op == "=~") %>%
+
+  # Keep factor name, item name, and standardized loading
+  dplyr::select(Factor = lhs, Item = rhs, Std_Loading = std.all) %>%
+
+  # Reshape so each item is a row and each factor is a column
+  tidyr::pivot_wider(names_from = Factor, values_from = Std_Loading)
+
+# For each item, find the factor with the largest absolute loading
+std_loading_wide %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+
+    # Name of factor with strongest loading
+    strongest_factor = names(c_across(starts_with("f")))[which.max(abs(c_across(starts_with("f"))))],
+
+    # Size of strongest loading
+    strongest_loading = max(abs(c_across(starts_with("f"))), na.rm = TRUE)
+  ) %>%
+  dplyr::ungroup() %>% # Remove rowwise grouping and return to a regular data frame/tibble
+  dplyr::mutate(across(where(is.numeric), ~ round(.x, 3)))  # round to 3 decimals
+```
+
+<!-- #### 6 Factor- poor -->
+
+<!-- ```{r} -->
+<!-- library(lavaan) -->
+
+<!-- set.seed(1234) -->
+<!-- esem6.model <- ' -->
+<!--     efa("efa")*f1 +  -->
+<!--     efa("efa")*f2 +  -->
+<!--     efa("efa")*f3 + -->
+<!--     efa("efa")*f4 + -->
+<!--     efa("efa")*f5 + -->
+<!--     efa("efa")*f6 =~ cmrsp06 + cmrsp07 + cmrsp08 + cmrsp09 + cmrsp10 + cmrsp11 + -->
+<!--     cmrsp19 + cmrsp20 + cmrsp21 + cmrsp02 + cmrsp16 + cmrsp18 +cmrsp01 + cmrsp03 + -->
+<!--     cmrsp04 + cmrsp05 + cmrsp12 + cmrsp14 + cmrsp15 + cmrsp17 + cmrsp13 -->
+<!-- ' -->
+<!-- fit.esem6 <- sem(model = esem6.model, data = cmrs21_shrunk_combo, estimator = "WLSMV", -->
+<!--                   ordered = c("cmrsp01","cmrsp02","cmrsp03","cmrsp04","cmrsp05", -->
+<!--             "cmrsp06","cmrsp07","cmrsp08","cmrsp09","cmrsp10", -->
+<!--             "cmrsp11","cmrsp12","cmrsp13","cmrsp14","cmrsp15", -->
+<!--             "cmrsp16","cmrsp17","cmrsp18","cmrsp19","cmrsp20","cmrsp21")) -->
+
+<!-- summary(fit.esem6, fit.measures = TRUE, standardized = TRUE) -->
+
+<!-- ## Findings: focus on SCALED (ignore robust) -->
+<!-- ## Estimator: WLSMV. Chi squared = 219.260 ; df = 99 ; RMSEA = .025 ; CFI = .996, TLI = .992 ; SRMSR = .016 -->
+
+<!-- # F1: 06, 07, 10, 03 -->
+<!-- # F2: 09, 11 -->
+<!-- # F3: 01, 08, 05, 12 -->
+<!-- # F4: 17 -->
+<!-- # F5: 02, 16, 18 -->
+<!-- # F6: 04, 13, 14, 15, 19, 20, 21 -->
+<!-- #  -->
+<!-- # # Cross loadings: -->
+<!-- # cmrsp01: F3 (.393) vs F1 (.386) — basically tied -->
+<!-- # cmrsp11: F2 (.409), also F4 (.340) and F5 (.301) -->
+<!-- # cmrsp17: F4 (.298), but this is weak overall -->
+<!-- # cmrsp05: F3 (.373), also F6 (.275) -->
+<!-- # cmrsp15: F6 (.441), also F4 (.409) -->
+<!-- # cmrsp07: F1 (.654), also F2 (.456) -->
+<!-- ``` -->
+
+<!-- #=================================================================== -->
+<!-- # CMRS 10 -->
+
+<!-- ## Determine # of factors -->
+
+<!-- ```{r} -->
+<!-- psych::fa.parallel( -->
+<!--   cmrs10_shrunk_combo, -->
+<!--   fa  = "fa", -->
+<!--   fm  = "minres", -->
+<!--   cor = "poly" -->
+<!-- ) -->
+<!-- ``` -->
+
+<!-- ## EFA - CMRS 10 -->
+
+<!-- EFA asks: “What structure seems to be in the data?”  -->
+<!-- CFA asks: “Does this prespecified structure fit?” -->
+<!-- ESEM asks: “Does that general structure fit better when cross-loadings are allowed?” -->
+<!-- SEM asks: “Given an acceptable measurement model, how do the latent factors relate to other variables?” -->
+<!--   (after choosing the measurement model you trust most if you want to examine structural relations with diagnoses, impairment, demographics, etc.) -->
+
+
+<!-- ### 4 factors- Psych, Pearson -->
+
+<!-- ```{r} -->
+<!-- # 4 factor solution, Pearson's r -->
+
+<!-- library(psych) -->
+
+<!-- set.seed(1234) -->
+<!-- cmrs10_4factor_r_efa <- fa( -->
+<!--   cmrs10_shrunk_combo, -->
+<!--   nfactors = 4, -->
+<!--   rotate = "promax", -->
+<!--   fm = "minres")  ## minres is default -->
+
+<!-- print(cmrs10_4factor_r_efa, digits = 2, sort = TRUE, cut = .30) -->
+
+<!-- cmrs10_4factor_r_efa$loadings -->
+
+<!-- cmrs10_4factor_r_efa$residual[1:10] -->
+
+<!-- fa.diagram(cmrs10_4factor_r_efa) -->
+
+<!-- ## Findings: factor 4 has one item -->
+<!-- ## RMSEA = .054 ; TLI = .935 ; RMSR = .03 ; MIC = 1.6 ; BIC = -24.58 -->
+<!-- ``` -->
+
+<!-- ### 4 factors 10 item- Psych, Poly -->
+
+<!-- ```{r} -->
+<!-- # 4 factor solution -->
+
+<!-- library(psych) -->
+
+<!-- set.seed(1234) -->
+<!-- cmrs10_4poly_efa <- fa( -->
+<!--   cmrs10_shrunk_combo, -->
+<!--   cor = "poly", -->
+<!--   nfactors = 4, -->
+<!--   rotate = "promax", -->
+<!--   fm = "minres")  ## minres is default -->
+
+<!-- print(cmrs10_4poly_efa, digits = 2, sort = TRUE, cut = .30) -->
+
+<!-- cmrs10_4poly_efa$loadings -->
+
+<!-- cmrs10_4poly_efa$residual[1:10] -->
+
+<!-- fa.diagram(cmrs10_4poly_efa) -->
+
+<!-- ## Findings: 2 variables have double loadings. item 4 is equal. -->
+<!-- ## Factor 3 only has 1 item. Cum var: 70% -->
+<!-- ## RMSEA = .074 ; TLI = .959 ; RMSR = .03 ; MIC = 1.3 ; BIC = 62.6 -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- ##This is to support continuity. Testing 1,2,3,4 factors -->
+<!-- library(lavaan) -->
+
+<!-- set.seed(1234) -->
+<!-- fit10.efa <- efa(data = cmrs10_shrunk_combo, nfactors = 1:3,  -->
+<!--                estimator = "WLSMV", ordered =names(cmrs10_shrunk_combo)) -->
+<!-- summary(fit10.efa) -->
+<!-- ``` -->
+
+<!-- ### 3 factors 10 item- Psych, Poly -->
+
+<!-- ```{r} -->
+<!-- # 4 factor solution -->
+
+<!-- library(psych) -->
+
+<!-- set.seed(1234) -->
+<!-- cmrs10_3poly_efa <- fa( -->
+<!--   cmrs10_shrunk_combo, -->
+<!--   cor = "poly", -->
+<!--   nfactors = 3, -->
+<!--   rotate = "promax", -->
+<!--   fm = "minres")  ## minres is default -->
+
+<!-- print(cmrs10_3poly_efa, digits = 2, sort = TRUE, cut = .30) -->
+
+<!-- cmrs10_3poly_efa$loadings -->
+
+<!-- cmrs10_3poly_efa$residual[1:10] -->
+
+<!-- fa.diagram(cmrs10_3poly_efa) -->
+
+<!-- ## Findings: 2 variables have double loadings. item 4 is equal. -->
+<!-- ## Factor 3 only has 1 item. Cum var: 70% -->
+<!-- ## RMSEA = .098 ; TLI = .929 ; RMSR = .02 ; MIC = 1.3 ; BIC = 266.51 -->
+<!-- ``` -->
+
+
+<!-- ### Lavaan -->
+
+<!-- #### 3 Factors -->
+<!-- ```{r} -->
+<!-- ## same estimator as CFA. use over psych poly -->
+
+<!-- set.seed(1234) -->
+<!-- fit10_3 <- efa(data = cmrs10_shrunk_combo, -->
+<!--              nfactors = 3, -->
+<!--              estimator = "WLSMV", -->
+<!--              ordered = c("cmrsp01","cmrsp02","cmrsp04","cmrsp05", -->
+<!--             "cmrsp08","cmrsp09","cmrsp12","cmrsp13","cmrsp16","cmrsp20")) -->
+
+<!-- summary(fit10_3, fit.measures = TRUE, standardized = TRUE) -->
+
+<!-- fit10_3$loadings -->
+
+<!-- ##  -->
+
+<!-- # Fit measures: -->
+<!-- #                   chisq   df   pvalue    cfi    rmsea -->
+<!-- #   nfactors = 3   75.174   18      0     0.977    0.089 -->
+<!-- ``` -->
+
+<!-- #### 4 Factors - doesn't run -->
+<!-- ```{r} -->
+<!-- ## same estimator as CFA. WILL NOT RUN -->
+
+<!-- set.seed(1234) -->
+<!-- fit10_4 <- efa(data = cmrs10_shrunk_combo, -->
+<!--              nfactors = 4, -->
+<!--              estimator = "WLSMV", -->
+<!--              ordered = c("cmrsp01","cmrsp02","cmrsp04","cmrsp05", -->
+<!--             "cmrsp08","cmrsp09","cmrsp12","cmrsp13","cmrsp16","cmrsp20")) -->
+
+<!-- summary(fit10_4, fit.measures = TRUE, standardized = TRUE) -->
+
+<!-- fit10_4$loadings -->
+
+<!-- ## WILL NOT RUN -->
+
+<!-- # Fit measures: -->
+<!-- #                   chisq   df   pvalue    cfi    rmsea -->
+<!-- #   nfactors = 4 -->
+<!-- ``` -->
+
+
+<!-- ### ABACAB CFA -->
+
+<!-- #### 4 Factor - USE FOR PAPER -->
+<!-- ```{r} -->
+<!-- #CFA using 4 factor model based on ABACAB Scree Plot (poly) -->
+
+<!-- set.seed(1234) -->
+
+<!-- # Specify factor structure -->
+<!-- cfa_abacab_4_10.model<- ' -->
+<!-- Factor1 =~ cmrsp08 + cmrsp09 -->
+<!-- Factor2 =~ cmrsp02 + cmrsp16 -->
+<!-- Factor3 =~ cmrsp04 + cmrsp20 + cmrsp05 + cmrsp13 -->
+<!-- Factor4 =~ cmrsp01 + cmrsp12 -->
+<!-- ' -->
+
+<!-- # Fit CFA -->
+<!-- fit_cfa_abacab_4_10<- cfa(cfa_abacab_4_10.model, data = cmrs10_shrunk_combo, estimator = "WLSMV", -->
+<!--                   ordered = names(cmrs10_shrunk_combo)) -->
+
+<!-- # Display CFA result -->
+<!-- summary(fit_cfa_abacab_4_10, fit.measures = TRUE, standardized = TRUE) -->
+
+<!-- ## Findings: focus on SCALED -->
+<!-- ## Estimator: WLSMV. Chi squared = 191.171 ; df = 29 ; RMSEA = .050 ; CFI = .984, TLI = .975 ; SRMSR = .042 -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- # Get standardized parameter estimates from the CFA model -->
+<!-- std_loading_wide <- parameterEstimates(fit_cfa_abacab_4_10, standardized = TRUE) %>% -->
+
+<!--   # Keep only factor loadings -->
+<!--   dplyr::filter(op == "=~") %>% -->
+
+<!--   # Keep factor name, item name, and standardized loading -->
+<!--   dplyr::select(Factor = lhs, Item = rhs, Std_Loading = std.all) %>% -->
+
+<!--   # Reshape so each item is a row and each factor is a column -->
+<!--   tidyr::pivot_wider(names_from = Factor, values_from = Std_Loading) -->
+
+<!-- # For each item, find the factor with the largest absolute loading -->
+<!-- std_loading_wide %>% -->
+<!--   dplyr::rowwise() %>% -->
+<!--   dplyr::mutate( -->
+
+<!--     # Name of factor with strongest loading -->
+<!--     strongest_factor = names(c_across(starts_with("f")))[which.max(abs(c_across(starts_with("f"))))], -->
+
+<!--     # Size of strongest loading -->
+<!--     strongest_loading = max(abs(c_across(starts_with("f"))), na.rm = TRUE) -->
+<!--   ) %>% -->
+<!--   dplyr::ungroup() %>% # Remove rowwise grouping and return to a regular data frame/tibble -->
+<!--   dplyr::mutate(across(where(is.numeric), ~ round(.x, 3)))  # round to 3 decimals -->
+<!-- ``` -->
+
+<!-- #### Modifications -->
+<!-- ```{r} -->
+<!-- fit_cfa_mod_abacab_4_10 <- cfa(cfa_abacab_4_10.model, -->
+<!--            data = cmrs10_shrunk_combo) -->
+<!-- modindices(fit_cfa_mod_abacab_4_10, sort = TRUE, maximum.number = 10) -->
+<!-- ``` -->
+
+<!-- #### Composite Reliability -->
+<!-- ```{r} -->
+<!-- compRelSEM(fit_cfa_mod_abacab_4_10, tau.eq = FALSE, ord.scale = TRUE, return.total = TRUE) -->
+
+<!-- ## values above 0.7 indicate acceptable internal consistency, while values above 0.8 suggest good reliability.  -->
+
+<!-- ##https://medium.com/@luisdzanetta/confirmatory-factor-analysis-in-r-a-practical-guide-with-lavaan-35371cccd4f5 -->
+<!-- ``` -->
+
+
+<!-- <!-- ### ESEM - CMRS 10 --> -->
+
+
+<!-- <!-- #### 3 Factor --> -->
+
+<!-- <!-- ```{r} --> -->
+<!-- <!-- library(lavaan) --> -->
+
+<!-- <!-- set.seed(1234) --> -->
+<!-- <!-- esem3_10.model <- ' --> -->
+<!-- <!--     efa("efa")*f1 + --> -->
+<!-- <!--     efa("efa")*f2 + --> -->
+<!-- <!--     efa("efa")*f3 =~ cmrsp08 + cmrsp09 + cmrsp02 + cmrsp16 + cmrsp04 + cmrsp20  --> -->
+<!-- <!--     + cmrsp05 + cmrsp13 + cmrsp01 + cmrsp12 --> -->
+<!-- <!-- ' --> -->
+<!-- <!-- fit.esem3_10 <- sem(model = esem3_10.model, data = cmrs10_shrunk_combo, estimator = "WLSMV", --> -->
+<!-- <!--                   ordered = names(cmrs10_shrunk_combo)) --> -->
+
+<!-- <!-- summary(fit.esem3_10, fit.measures = TRUE, standardized = TRUE) --> -->
+
+<!-- <!-- lavInspect(fit.esem3_10, "std")$lambda ## loadings --> -->
+
+<!-- <!-- ## Findings: focus on SCALED (ignore robust) --> -->
+<!-- <!-- ## Estimator: WLSMV. Chi squared = 507.598 ; df = 132 ; RMSEA = .038 ; CFI = .988, TLI = .980 ; SRMSR = .027 --> -->
+<!-- <!-- ``` --> -->
+
+
+<!-- <!-- #### 4 Factor --> -->
+
+<!-- <!-- ```{r} --> -->
+<!-- <!-- library(lavaan) --> -->
+
+<!-- <!-- set.seed(1234) --> -->
+<!-- <!-- esem4_10.model <- ' --> -->
+<!-- <!--     efa("efa")*f1 + --> -->
+<!-- <!--     efa("efa")*f2 + --> -->
+<!-- <!--     efa("efa")*f3 + --> -->
+<!-- <!--     efa("efa")*f4 =~ cmrsp08 + cmrsp09 + cmrsp02 + cmrsp16 + cmrsp04 + cmrsp20  --> -->
+<!-- <!--     + cmrsp05 + cmrsp13 + cmrsp01 + cmrsp12 --> -->
+<!-- <!-- ' --> -->
+<!-- <!-- fit.esem4_10 <- sem(model = esem4_10.model, data = cmrs10_shrunk_combo, estimator = "WLSMV", --> -->
+<!-- <!--                   ordered = names(cmrs10_shrunk_combo)) --> -->
+
+<!-- <!-- summary(fit.esem4_10, fit.measures = TRUE, standardized = TRUE) --> -->
+
+<!-- <!-- ## Findings: focus on SCALED (ignore robust) --> -->
+<!-- <!-- ## Estimator: WLSMV. Chi squared = 507.598 ; df = 132 ; RMSEA = .038 ; CFI = .988, TLI = .980 ; SRMSR = .027 --> -->
+<!-- <!-- ``` --> -->
+
+

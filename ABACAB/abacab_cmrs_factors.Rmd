@@ -1,0 +1,184 @@
+---
+title: "abacab_cmrs_factors"
+output: html_document
+---
+
+Open project, set working directory, load files, load libraries
+
+```{r}
+library(dplyr)
+library(haven)
+library(tidyverse)
+library(psych)
+library(lavaan)
+library(semPlot)
+```
+
+# Prepare the data
+
+## Load data
+
+(Remove "/data" from file name)
+
+```{r}
+abacab <- read_sav("Ultimate Enchilada v3.3 chopped for 525 v4.sav")
+```
+
+## Clean Data
+
+```{r}
+# Select scale items and demographic variables (%\>% means take from abacab to make cmrs)
+cmrs <- abacab %>%
+  select(crace, agechild, femaleyn, cmrsp01:cmrsp21)
+
+# Remove any rows that have missing values
+cmrs <- na.omit(cmrs)
+
+# Convert a binary variable into a factor
+cmrs$femaleyn <- factor(cmrs$femaleyn)
+
+# Get a glimpse of descriptive statistics in a table format
+describe(cmrs)
+```
+
+Create separate sheets for full and brief CMRS.
+
+```{r}
+cmrs_long <- cmrs %>%
+  select(cmrsp01:cmrsp21)
+cmrs_short <- cmrs %>%
+  select(cmrsp01, cmrsp02, cmrsp04, cmrsp05, cmrsp08, cmrsp09, cmrsp12, cmrsp13, cmrsp16, cmrsp20)
+```
+
+
+# Factor Structure
+
+## CMRS-21 EFA (YouGov code)
+
+### 4 factors Poly
+
+```{r 4 factor psych package, eval=FALSE, include=FALSE}
+## polychoric, for BENCHMARK CFA comparison
+
+cmrs21_4factorpoly_efa <- fa(
+  cmrs_long,
+  cor = "poly",
+  nfactors = 4,
+  rotate = "promax",
+  fm = "minres")  ## minres is default
+
+print(cmrs21_4factorpoly_efa, digits = 2, sort = TRUE, cut = .30)
+
+cmrs21_4factorpoly_efa$loadings
+
+fa.diagram(cmrs21_4factorpoly_efa)
+
+# chisq.scaled  302.486
+# df.scaled     132.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.050
+# cfi.scaled      0.981
+# tli.scaled      0.970
+# srmr            0.041
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+```
+
+
+### 4 factors- lavaan (USE)
+
+```{r 4 factor unrotated, eval=FALSE, include=FALSE}
+## same estimator as CFA. use over psych poly
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_4 <- efa(data = cmrs_long,
+             nfactors = 4,
+             estimator = "WLSMV",
+             ordered = var.names)
+
+summary(fit_4)
+fitMeasures(fit_4, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_4$loadings
+
+
+# chisq.scaled  302.486
+# df.scaled     132.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.050***
+# cfi.scaled      0.981***
+# tli.scaled      0.970***
+# srmr            0.041***
+
+# rmsea.robust    0.098
+# cfi.robust      0.905
+# tli.robust      0.849
+
+```
+
+```{r}
+## same estimator as CFA. use over psych poly
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_4_rot <- efa(data = cmrs_long,
+             nfactors = 4,
+             estimator = "WLSMV",
+             ordered = var.names,
+             rotation = "promax")
+
+summary(fit_4_rot)
+fitMeasures(fit_4_rot, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_4_rot$loadings
+
+
+# chisq.scaled  302.486
+# df.scaled     132.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.050
+# cfi.scaled      0.981
+# tli.scaled      0.970
+# srmr            0.041
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+
+```
+
+### 5 factor lavaan
+
+```{r}
+## same estimator as CFA. use over psych poly
+var.names <- paste0("cmrsp", sprintf("%02d", 1:21))
+
+set.seed(1234)
+fit_5_rot <- efa(data = cmrs_long,
+             nfactors = 5,
+             estimator = "WLSMV",
+             ordered = var.names,
+             rotation = "promax")
+
+summary(fit_5_rot)
+fitMeasures(fit_5_rot, fit.measures = c("chisq.scaled", "df.scaled", "pvalue.scaled",
+                                    "rmsea.scaled", "cfi.scaled", "tli.scaled", "srmr",
+                                    "rmsea.robust", "cfi.robust", "tli.robust"))
+fit_5_rot$loadings
+
+
+# chisq.scaled  215.864
+# df.scaled     115.000
+# pvalue.scaled   0.000
+# rmsea.scaled    0.041
+# cfi.scaled      0.989
+# tli.scaled      0.979
+# srmr            0.029
+# rmsea.robust       NA
+# cfi.robust         NA
+# tli.robust         NA
+
+```
