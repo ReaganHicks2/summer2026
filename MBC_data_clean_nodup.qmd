@@ -1,0 +1,282 @@
+---
+title: "MBC Chart Review Data Cleaning (No Duplicates Added Back)"
+format: html
+---
+
+## Library/Data Loading
+
+Note that you will have to change these path names for your own computer.
+
+```{r}
+#| message: false
+library(readxl)
+library(tidyverse)
+
+df <- read.csv("MBC Chart review/209796_PSC-17_Data_20251014.csv")
+```
+
+## Exploration
+
+```{r}
+head(df)
+names(df)
+
+# Viewing example patient data, commented out, but helpful to see what an example patient looks like
+#view(filter(df, MRN == df$MRN[1]))
+
+length(unique(df$MRN)) #Number of patients
+nrow(df) #Number of rows (includes individual item responses and subscale/total scores- not a very helpful number but helpful as a baseline)
+```
+
+## Merging (Using FLO_MEAS_ID)
+
+Can use the following to ID what the FLO_MEAS_ID refers to. Did this by copying to an Excel file and investigating each row.
+
+```{r}
+cbind(FLO_MEAS_ID = unique(df$FLO_MEAS_ID),
+      Pasted_Output = unique(paste(df$FLO_MEAS_ID, df$DISP_NAME, df$FLO_MEAS_NAME)))
+```
+
+Importing and merging the manual file.
+
+```{r}
+manuals <- read_xlsx("script/PSC Manual Entry.xlsx")
+
+df <- merge(df, manuals, by = "FLO_MEAS_ID", all = TRUE) |>
+  select(-Pasted_Output)
+
+# Viewing example patient data (again)
+#view(filter(df, MRN == df$MRN[1]))
+```
+
+## Exploration (Continued)
+
+Template ID will become useful later to identify duplicates, but we can see here that it is somewhat related to Flosheet Measure IDs.
+
+```{r}
+unique(paste(df$TEMPLATE_ID, df$TEMPLATE_NAME))
+
+table(df$FLO_MEAS_ID, df$TEMPLATE_ID)
+```
+
+We had some PSC-35 responses. We will filter those out later.
+
+```{r}
+df |>
+  group_by(Measure) |>
+  summarize(count = n())
+```
+
+### Comments
+
+We also have comments for each item response. These will not be included in the final dataset, but we can pull these if desired later.
+
+```{r}
+unique(df$MEAS_COMMENT)
+length(unique(df$MEAS_COMMENT))
+
+comments <- filter(df, !is.na(MEAS_COMMENT) & MEAS_COMMENT != "")
+
+nrow(comments)
+
+comments$MEAS_COMMENT
+
+print(
+  comments |>
+    group_by(Item) |>
+    summarize(comment.count = n()),
+  n = 35
+)
+
+#view(filter(comments, MRN == comments$MRN[1]))
+```
+
+### Interpretations
+
+Similar to comments, we have interpretations built into the measure. These are not consistently used, but they may be of interest later. Unlike comments, which have their own column, these appear in the same column as item responses and are why R does not recognize our item responses as numeric. These also will not appear in the final dataset.
+
+```{r}
+filter(df, Item == "Interp")
+```
+
+## Filtering Out Duplicates
+
+The first step is creating an ID variable that combines all of the information we know that would identify duplicate responses, including MRN, Date, Respondent, TemplateID, and Item.
+
+```{r}
+df$recIDs <- paste(df$MRN, df$RECORDED_DATE, df$Respondent, df$TEMPLATE_ID,
+                   "Item", df$Item, sep = "")
+```
+
+We can use the newly created recIDs variable to identify any of those recIDs that appear twice in a new dataframe called "problemIDs". The below recIDs are our issues (total of 1869).
+
+```{r}
+problemIDs <-
+  df |>
+  filter(Type == "Item") |>
+  group_by(recIDs) |>
+  summarize(count = n()) |>
+  filter(count > 1)
+
+problemIDs$recIDs
+length(problemIDs$recIDs)
+```
+
+### Removing All Duplicates
+
+Creating a duplicates dataframe, then sorting by MRN, Date, and Item to view duplicates.
+
+```{r}
+duplicates <- df|>
+  filter(recIDs %in% problemIDs$recIDs)|>
+  select(MRN, RECORDED_DATE, TEMPLATE_ID, Respondent, Measure, Item, DISP_NAME, MEAS_VALUE, recIDs)
+
+duplicates[order(duplicates$MRN, duplicates$RECORDED_DATE, duplicates$Item), ]
+```
+
+Removing duplicates in a new clean dataframe. Note: unlike the original script, matching-value duplicates (OKproblemIDs) are NOT added back. Removes 3739 rows to eliminate duplicates (see below).
+
+```{r}
+df.clean <- filter(df, !recIDs %in% duplicates$recIDs)
+
+nrow(df)
+nrow(df.clean)
+nrow(df) - nrow(df.clean)
+```
+
+Sorting based on the components of recID, then using df.clean directly as df.long (no duplicates added back). In total, we lost 3,739 responses by deleting duplicates (vs. 3,703 in the version that adds matching duplicates back).
+
+```{r}
+df.clean <- df.clean[order(df.clean$MRN, df.clean$RECORDED_DATE,
+                           df.clean$Respondent, df.clean$TEMPLATE_NAME,
+                           df.clean$Item), ]
+
+df.long <- df.clean
+
+nrow(df) - nrow(df.long)
+```
+
+### Verify No Remaining Duplicates
+
+Checking to make sure we have no remaining duplicates.
+
+```{r}
+df.long$recIDs <- paste(df.long$MRN, df.long$RECORDED_DATE, df.long$Respondent,
+                        df.long$TEMPLATE_ID, "Item", df.long$Item, sep = "")
+
+problemIDs <-
+  df.long |>
+  filter(Type == "Item") |>
+  group_by(recIDs) |>
+  summarize(count = n()) |>
+  filter(count > 1)
+
+df.long |>
+  filter(recIDs %in% problemIDs$recIDs) |>
+  select(MRN, RECORDED_DATE, TEMPLATE_ID, Respondent, Measure, Item,
+         DISP_NAME, MEAS_VALUE)
+```
+
+## Final Changes to Long Version
+
+We do not want to retain PSC-35 responses, so we will filter those out.
+
+```{r}
+df.long |>
+  group_by(Measure) |>
+  summarize(count = n())
+
+df.long <- filter(df.long, Measure == "PSC-17")
+```
+
+We also do not need anything that is not an item response (e.g., subscale or total scores). Epic tends to calculate these incorrectly, especially when there are missing values. We will make our own subscale and total scores. The 'Other' value is worth investigating (see below).
+
+```{r}
+df.long |>
+  group_by(Type) |>
+  summarize(count = n())
+```
+
+We do not need to retain date completed or interpretations, although we noted these may be interesting, and we have 284 of these if someone is interested.
+
+```{r}
+df.long |>
+  filter(Type == "Other") |>
+  group_by(Item) |>
+  summarize(count = n())
+
+df.long <- filter(df.long, Type == "Item")
+```
+
+Selecting only the relevant components and mutating so that R reads Item, MEAS_VALUE, and RECORDED_DATE appropriately.
+
+```{r}
+df.long <-
+  select(df.long, MRN, RECORDED_DATE, Respondent, TEMPLATE_ID, Item, MEAS_VALUE) |>
+  mutate(
+    Item          = as.numeric(Item),
+    MEAS_VALUE    = as.numeric(MEAS_VALUE),
+    RECORDED_DATE = as.Date(RECORDED_DATE, format = "%m/%d/%Y")
+  )
+
+length(unique(df.long$MRN)) #Retained all 27,449 patients
+unique(df.long$Item) #Only relevant items remain
+unique(df.long$MEAS_VALUE) #All responses are appropriate
+unique(df.long$Respondent) #Only patient and parent responses remain
+```
+
+Date ranges appear correct. R is reading these correctly now.
+
+```{r}
+min(df.long$RECORDED_DATE)
+max(df.long$RECORDED_DATE)
+
+str(df.long)
+
+df.long <- df.long[order(df.long$Item), ] #Sorting by item so they are in order when we pivot
+```
+
+## Creating Wide Version
+
+Then we can make our wide version!
+
+```{r}
+df.wide <-
+  pivot_wider(df.long,
+              id_cols      = c(MRN:TEMPLATE_ID),
+              names_from   = Item,
+              names_prefix = "psc",
+              values_from  = MEAS_VALUE,
+              values_fn    = first)
+
+#view(df.wide)
+```
+
+Creating list of psc items for each category, then creating total and subscale scores.
+
+```{r}
+InternalizingItems <- paste("psc", c(2, 6, 9, 11, 15), sep = "")
+AttentionItems     <- paste("psc", c(1, 3, 7, 13, 17), sep = "")
+ExternalizingItems <- paste("psc", c(4, 5, 8, 10, 12, 14, 16), sep = "")
+
+df.wide$Total         <- rowSums(select(df.wide, psc1:psc17))
+df.wide$Internalizing <- rowSums(select(df.wide, all_of(InternalizingItems)))
+df.wide$Attention     <- rowSums(select(df.wide, all_of(AttentionItems)))
+df.wide$Externalizing <- rowSums(select(df.wide, all_of(ExternalizingItems)))
+
+nrow(df.wide)
+
+sum(!is.na(df.wide$Total))
+sum(!is.na(df.wide$Internalizing))
+sum(!is.na(df.wide$Attention))
+sum(!is.na(df.wide$Externalizing))
+```
+
+## Writing Files
+
+May need to change these for individual users, but they work for me. My advice is to keep the gsub line, which date-marks this file, preventing it from being overwritten on accident.
+
+```{r}
+write.csv(df.long, "PSC17_Long_nodup.csv", row.names = FALSE)
+write.csv(df.wide, "PSC17_wide_nodup.csv", row.names = FALSE)
+```
